@@ -7,9 +7,10 @@ and sample distributions
 """
 import numpy as np 
 import matrix_method
+import scipy.stats
 np.random.seed(605)
-X = np.random.rand(2,3)
-Y = np.random.rand(5,4)
-Y = 3*X
+X = np.random.rand(9,13)
+# Y = np.random.rand(5,13)
+Y = X
 a = matrix_method.spectral_mutual_information(X,Y)
 print(a)

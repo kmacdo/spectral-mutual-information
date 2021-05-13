@@ -1,7 +1,14 @@
+"""
+Defines methods to calculate the spectral mutual information between graphs.
+The function `spectral_mutual_information` takes two matrices (of the same dimension, but with possibly different numbers of rows) and returns the mutual information between the evals of the graph laplacian.
+"""
+
 import numpy as np
 from scipy.spatial import distance_matrix
+from scipy import stats # used to calculate the entropy between the evals
+import graphtools
 
-def von_neumann_entropy(ro):
+def von_neumann_entropy(rho):
 	"""
 	Computes the Von Neumann Entropy of a matrix. Also known as the Spectral Entropy. 
 	In short -- the entropy of the eigenvalues of this matrix.
@@ -10,13 +17,109 @@ def von_neumann_entropy(ro):
 	"""
 	# 1. Eigendecompose ro.
 	# TODO: This will be the most time intensive step. Can we improve on numpy?
-	evals = np.linalg.eigvalsh(ro)
+	evals = np.linalg.eigvalsh(rho)
+	# Due to precision errors, the eigendecomposition sometimes gives very small *negative* evals. We'll just take the abs to turn them into (very small) positive ones.
+	evals = np.abs(evals)
 	# 1.5 TODO: Normalize evals?
-	evals = evals / np.sum(evals)
+	# evals = evals / np.sum(evals)
+	#print(evals)
 	# 2. Compute entropy of evals
-	entropy = -np.sum(evals*np.log(evals))
+	# entropy =  stats.entropy(evals) # scipy has automatic normalization that we don't want, so this is a home-cooked function
+	evals_logged = evals.copy()
+	evals_logged[evals_logged==0] = 1 # log(0) throws errors, so replace those with something else.
+	evals_logged = np.log(evals_logged)
+	entropy = np.multiply(evals,evals_logged)
+	#print(entropy)
+	entropy = -np.sum(entropy)
+	#print(entropy)
 	return entropy
 	
+	
+def von_neumann_entropy_from_data(X):
+	# Convenience function combining computation of rho, and the entropic calculation
+	# 1. Get normalized laplacian, aka "quantum density matrix", from @passerini2012
+	# 1.5 First, use graphtools to build a graph from the data.
+	G = graphtools.api.Graph(X) # this has some defaults for automatically selecting the best type of graph. We'll trust them for now.
+	kernel_matrix = G.K # the adjacency matrix with ones on the diagonal
+	A = kernel_matrix - np.eye(kernel_matrix.shape[0]) # get rid of those ones
+	# Swap out this function for another to test different methods
+	rho = normalized_laplacian_from_graph(A)
+	#print("Rho matrix",rho)
+	# 2. Compute entropy of evals
+	H = von_neumann_entropy(rho)
+	return H
+
+def von_neumann_entropy_from_graph(A):
+	# Convenience function combining computation of rho, and the entropic calculation
+	# 1. Get normalized laplacian, aka "quantum density matrix", from @passerini2012
+	rho = normalized_laplacian_from_graph(A)
+	#print("Rho matrix",rho)
+	# 2. Compute entropy of evals
+	H = von_neumann_entropy(rho)
+	return H
+	
+	
+def normalized_laplacian_from_graph(A):
+	# We compute the "quantum density matrix" rho as the normalized graph laplacian, as suggested by @passerini2012 "The Von Neumann Entropy of Networks"
+		# 2. Compute the degree matrix
+	degree_sums = np.sum(A,axis=1)
+	total_degree_sum = np.sum(degree_sums,axis=None)
+	D = np.diag(degree_sums)
+	# 3. Compute laplacian
+	L = D - A
+	# 4. Normalize (in style of @passerini2021) by dividing by the total degree sum
+	rho_G = L/total_degree_sum
+	return rho_G
+
+	
+def spectral_mutual_information(X,Y):
+	"""
+	Computes spectral mutual information between two matrices, according to
+	$$ I(X,Y) = H(X) + H(Y) - H(X,Y) $$
+	where H is the Von Neumann entropy of the affinity matrix derived from X.
+	"""
+	#print("X",X)
+	#print("Y",Y)
+	HX = von_neumann_entropy_from_data(X)
+	HY = von_neumann_entropy_from_data(Y)
+	# for the joint entropy, we perform the disjoint union of X and Y and get the joint distribution.
+	XY = disjoint_union(X, Y)
+	XY = np.concatenate([X,Y],axis=0)
+	#print(XY)
+	HXY = von_neumann_entropy_from_data(XY)
+	print("HX",HX,"+ HY ",HY," - HXY ",HXY)
+	I =  HX + HY - HXY
+	return I
+
+# - - - - - - Function Graveyard - - - - - - - - - -	
+	
+def OLDvon_neumann_entropy_from_matrix(X):
+	# Convenience function combining computation of rho, and the entropic calculation
+	# We compute the "quantum density matrix" rho as the normalized graph laplacian, as suggested by @passerini2012 "The Von Neumann Entropy of Networks"
+	# 1. Get affinity matrix
+	W = compute_affinity_matrix(X, "gaussian")	
+	# 1.5 Remove self loops
+	W = W - np.eye(W.shape[0])
+	# 2. Binarize into adjacency matrix. TODO: Loses information. Reconsider. Or build a KNN graph.
+	# compute the average connection strength; use as threshold.
+	avg_connection = np.mean(W)
+	A = (W >= np.ones(W.shape)*avg_connection).astype(int)
+	# 2. Get entropy
+	H = von_neumann_entropy(W)
+	return H
+	
+def disjoint_union(X,Y):
+	"""
+	 - Not used. -
+	Returns the disjoint union of the two sets, treating each row as an element.
+	TODO: There is very likely a faster way to do this than looping.
+	"""
+	OUT = np.zeros((X.shape[0]*Y.shape[0],X.shape[1]+Y.shape[1]))
+	for i, x in enumerate(X):
+		for j, y in enumerate(Y):
+			OUT[i*Y.shape[0] + j] = np.concatenate([x, y])
+	return OUT
+
 def compute_affinity_matrix(X, kernel_type="gaussian",sigma=0.7, k=3):
 	"""
 	Given an n x d array of d-dimensional points, creates an affinity matrix (for use with `von_neumann_entropy`)
@@ -45,42 +148,5 @@ def compute_affinity_matrix(X, kernel_type="gaussian",sigma=0.7, k=3):
 		W = 0.5*(np.exp(-W_row)+np.exp(-W_col))
 	else:
 		return "kernel type must be gaussian or adaptive"
-	# 3. Normalize for entropy?
-	
 	# 4. Return
 	return W
-
-def von_neumann_entropy_from_matrix(X):
-	# Convenience function combining affinity matrix computation and the entropic calculation
-	# 1. Get affinity matrix
-	W = compute_affinity_matrix(X, "gaussian")	
-	# 2. Get entropy
-	H = von_neumann_entropy(W)
-	return H
-	
-def disjoint_union(X,Y):
-	"""
-	Returns the disjoint union of the two sets, treating each row as an element.
-	TODO: There is very likely a faster way to do this than looping.
-	"""
-	OUT = np.empty((X.shape[0]*Y.shape[0],X.shape[1]+Y.shape[1]))
-	for i, x in enumerate(X):
-		for j, y in enumerate(Y):
-			OUT[i*X.shape[0] + j] = np.concatenate([x, y])
-	return OUT
-	
-
-def spectral_mutual_information(X,Y):
-	"""
-	Computes spectral mutual information between two matrices, according to
-	$$ I(X,Y) = H(X) + H(Y) - H(X,Y) $$
-	where H is the Von Neumann entropy of the affinity matrix derived from X.
-	"""
-	HX = von_neumann_entropy_from_matrix(X)
-	HY = von_neumann_entropy_from_matrix(Y)
-	# for the joint entropy, we perform the disjoint union of X and Y and get the joint distribution.
-	XY = disjoint_union(X, Y)
-	HXY = von_neumann_entropy_from_matrix(XY)
-	print("HX",HX,"+ HY ",HY,"- HXY ",HXY)
-	I = HXY - HX - HY
-	return I
