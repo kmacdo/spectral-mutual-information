@@ -22,7 +22,7 @@ def von_neumann_entropy(rho):
 	# Due to precision errors, the eigendecomposition sometimes gives very small *negative* evals. We'll just take the abs to turn them into (very small) positive ones.
 	evals = np.abs(evals)
 	# 1.5 TODO: Normalize evals?
-	# evals = evals / np.sum(evals) # skipping normalization allows the H(X,Y) graph to give bigger entropies.
+	evals = evals / np.sum(evals) # skipping normalization allows the H(X,Y) graph to give bigger entropies.
 	print(f"evals {evals}")
 	# 2. Compute entropy of evals
 	# entropy =  stats.entropy(evals) # scipy has automatic normalization that we don't want, so this is a home-cooked function
@@ -80,7 +80,7 @@ def normalized_laplacian_from_graph(A):
 	return rho_G
 
 	
-def spectral_mutual_information(X,Y):
+def spectral_mutual_information(X,Y,is_adjacency_matrix=False):
 	"""
 	Computes spectral mutual information between two matrices, according to
 	$$ I(X,Y) = H(X) + H(Y) - H(X,Y) $$
@@ -88,15 +88,27 @@ def spectral_mutual_information(X,Y):
 	"""
 	#print("X",X)
 	#print("Y",Y)
-	HX = von_neumann_entropy_from_data(X)
-	HY = von_neumann_entropy_from_data(Y)
-	# for the joint entropy, we perform the disjoint union of X and Y and get the joint distribution.
-	# XY = disjoint_union(X, Y)
-	XY = np.concatenate([X,Y],axis=0)
-	#print(XY)
-	HXY = von_neumann_entropy_from_data(XY,double=True)
-	print("HX",HX,"+ HY ",HY," - HXY ",HXY)
-	I =  HX + HY - HXY
+	if is_adjacency_matrix:
+		# TODO: it would be great to define this directly from a graph; but how do we consider the joint entropy on a graph? It's impossible with just the given information.
+		HX = von_neumann_entropy_from_graph(X)
+		HY = von_neumann_entropy_from_graph(Y)
+		# for the joint entropy, we perform the disjoint union of X and Y and get the joint distribution.
+		XY = disjoint_union(X, Y)
+		# XY = np.concatenate([X,Y],axis=0)
+		#print(XY)
+		HXY = von_neumann_entropy_from_graph(XY,double=True)
+		print("HX",HX,"+ HY ",HY," - HXY ",HXY)
+		I =  HX + HY - HXY
+	if not is_adjacency_matrix:
+		HX = von_neumann_entropy_from_data(X)
+		HY = von_neumann_entropy_from_data(Y)
+		# for the joint entropy, we perform the disjoint union of X and Y and get the joint distribution.
+		# XY = disjoint_union(X, Y)
+		XY = np.concatenate([X,Y],axis=0)
+		#print(XY)
+		HXY = von_neumann_entropy_from_data(XY,double=True)
+		print("HX",HX,"+ HY ",HY," - HXY ",HXY)
+		I =  HX + HY - HXY
 	return I
 
 def spectral_mutual_information_via_affinity(X,Y):
