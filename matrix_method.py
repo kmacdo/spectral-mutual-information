@@ -75,9 +75,9 @@ def normalized_laplacian_from_graph(A):
 	# 3. Compute laplacian
 	L = D - A
 	# 4. Normalize (in style of @passerini2021) by dividing by the total degree sum
-	rho_G = L/total_degree_sum
+	L = L/total_degree_sum
 	print(f"total degree sum {total_degree_sum}")
-	return rho_G
+	return L
 
 	
 def spectral_mutual_information(X,Y,is_adjacency_matrix=False):
@@ -152,7 +152,7 @@ def von_neumann_entropy_from_data_via_affinity(X):
 	
 def disjoint_union(X,Y):
 	"""
-	 - Not used. -
+	! Not used. 
 	Returns the disjoint union of the two sets, treating each row as an element.
 	TODO: There's definitely a faster way to do this than looping.
 	"""
